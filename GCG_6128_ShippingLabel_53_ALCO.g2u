@@ -1,0 +1,262 @@
+﻿Program.Sub.ScreenSU.Start
+Gui.fMain..Create(BaseForm)
+Gui.fMain..Caption("Label Printing Options")
+Gui.fMain..Size(3075,2565)
+Gui.fMain..MinX(0)
+Gui.fMain..MinY(0)
+Gui.fMain..Position(0,0)
+Gui.fMain..AlwaysOnTop(False)
+Gui.fMain..FontName("Tahoma")
+Gui.fMain..FontSize(8.25)
+Gui.fMain..ControlBox(True)
+Gui.fMain..MaxButton(False)
+Gui.fMain..MinButton(False)
+Gui.fMain..MousePointer(0)
+Gui.fMain..Moveable(True)
+Gui.fMain..Sizeable(False)
+Gui.fMain..ShowInTaskBar(True)
+Gui.fMain..TitleBar(True)
+Gui.fMain..Event(UnLoad,fMain_UnLoad)
+Gui.fMain.chkCarton.Create(CheckBox)
+Gui.fMain.chkCarton.Enabled(True)
+Gui.fMain.chkCarton.Visible(True)
+Gui.fMain.chkCarton.Zorder(0)
+Gui.fMain.chkCarton.Size(1125,300)
+Gui.fMain.chkCarton.Position(1005,435)
+Gui.fMain.chkCarton.Caption("Carton")
+Gui.fMain.chkCarton.FontName("Tahoma")
+Gui.fMain.chkCarton.FontSize(8.25)
+Gui.fMain.chkPallet.Create(CheckBox)
+Gui.fMain.chkPallet.Enabled(True)
+Gui.fMain.chkPallet.Visible(True)
+Gui.fMain.chkPallet.Zorder(0)
+Gui.fMain.chkPallet.Size(1125,300)
+Gui.fMain.chkPallet.Position(1005,825)
+Gui.fMain.chkPallet.Caption("Pallet")
+Gui.fMain.chkPallet.FontName("Tahoma")
+Gui.fMain.chkPallet.FontSize(8.25)
+Gui.fMain.chkPallet.Value(1)
+Gui.fMain.chkPallet.DefaultValue(1)
+Gui.fMain.cmdPrint.Create(Button)
+Gui.fMain.cmdPrint.Enabled(True)
+Gui.fMain.cmdPrint.Visible(True)
+Gui.fMain.cmdPrint.Zorder(0)
+Gui.fMain.cmdPrint.Size(1125,345)
+Gui.fMain.cmdPrint.Position(1005,1515)
+Gui.fMain.cmdPrint.Caption("Print")
+Gui.fMain.cmdPrint.FontName("Tahoma")
+Gui.fMain.cmdPrint.FontSize(8.25)
+Gui.fMain.cmdPrint.Event(Click,Print)
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+Variable.Global.iBIRunID.Declare(Long,0)
+Variable.Global.iBILogID.Declare(Long,0)
+Variable.Global.iBIRptID.Declare(Long,0)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+	Gui.fMain..Visible(True)
+Program.Sub.Main.End
+
+Program.Sub.Print.Start
+'Preprocessor for BI RptID 53 shipping labels
+'Prints Carton & Pallet Labels
+
+F.Intrinsic.Control.SetErrorHandler("Main_Err")
+F.Intrinsic.Control.ClearErrors
+
+	v.Local..BulkDeclareString(sError,sOrder,sSql,sRet)
+	
+	f.Intrinsic.Control.If(v.passed.calling-pgm,<>,"ORD0FSLZ")
+	f.Intrinsic.Control.End
+	f.Intrinsic.Control.ExitSub
+	f.Intrinsic.Control.EndIf
+	v.Passed.CANCEL.Set(1)
+	
+	'open db connection
+	f.ODBC.Connection!conx.opencompanyconnection
+	
+	
+	
+	
+	
+	'shipment no passed from BI
+	v.Local.sorder.Set(v.Passed.BIP_SHIPNO)
+	F.Intrinsic.String.Split(V.Local.sOrder,"##",v.Local.sOrder)
+	
+	'set passed shipping label report id
+	V.Global.iBIRptID.Set(v.Passed.009001)
+	
+	'get customer number to use for lookup up Custom Shipping Label ID
+	V.Local.sSel.Declare
+	v.Local.sCustomer.Declare
+	F.Intrinsic.String.build("SELECT CUSTOMER FROM V_SHIPMENT_HEADER WHERE PCK_NO='{0}'",V.Local.sorder,V.local.sSel)
+	Function.ODBC.Connection!conx.OpenlocalRecordsetRO("rstcust",V.Local.sSel)
+		F.Intrinsic.Control.If(V.ODBC.conx!rstcust.EOF,=,False)
+			V.Local.sCustomer.Set(v.ODBC.conx!rstcust.FieldValTrim!customer)
+		F.Intrinsic.Control.EndIf
+	F.ODBC.Conx!rstcust.Close
+	
+	'get shipping label description and split out master report id and DUNS no
+	V.Local.sMasterRptID.Declare	
+	v.Local.sDUNS.Declare
+	v.Local.sValue.Declare
+	v.Local.smid23.Declare
+	
+	F.Intrinsic.String.Build("select filler1 from assign_cust_opt where ass_sys = 'SHP' and ass_sub_sys = 'LBL' and left(filler1,6)='{0}'",v.Local.sCustomer,V.Local.sSel)
+	F.ODBC.Connection!conx.ExecuteAndReturn(V.Local.sSel,V.Local.sRet)
+	f.Intrinsic.String.Mid(v.Local.sRet,23,1,v.Local.smid23)
+	f.Intrinsic.Control.If(v.Local.sRet,<>,"")
+	F.Intrinsic.Control.Andif(v.Local.smid23.Trim,=,":")
+		F.Intrinsic.String.Split(V.Local.sRet,":",V.Local.sValue)
+		F.Intrinsic.String.Trim(V.Local.sValue(2),V.Local.sValue(2))
+		v.Local.sMasterRptID.Set(v.Local.sValue(2))
+		v.Local.sDUNS.Set(v.Local.sValue(3))
+	f.Intrinsic.Control.EndIf
+	
+	
+	
+	
+	
+	' ---->  Create Carton Labels if customer wnats carton labels...
+	F.Intrinsic.Control.If(V.Screen.fMain!chkCarton.Checked,=,1)
+		'Get run ID
+		F.Global.BI.GetRunID(V.Global.iBIRunID)
+		
+		'Starting BI Logging
+		F.Global.BI.StartLogging(V.Global.iBIRunID,v.Global.iBIRptID,-1,"",V.Global.iBILogID)
+		
+		'tables currently in this query (for adding fields later)
+		'V_BOL_PACK_DTL PDT
+		'V_SHIPMENT_HEADER SH 
+		'V_SHIPMENT_SHIPTO ST 
+		'V_CUSTOMER_MASTER CM 
+		'V_INVENTORY_MST2 I2
+		'V_CUST_FORM_INFO CFI
+		'V_SHIPMENT_LINES
+		'V_BOL_CARTON_NUM CN
+		
+		'updating carton serialnumber
+		v.Local.ssql2.Declare(String)
+		
+		f.Intrinsic.String.Build("select A.*, RIGHT(A.CRTN_NO,2) AS TRIMCARTON from bol_carton_num A where pck_no = '{0}'",v.Local.sorder,v.Local.sSql2)
+		f.Data.DataTable.CreateFromSQL("PACK","Conx",V.Local.sSql2,True)
+		f.Data.DataTable.Clone("PACK","NEWPACK",True)
+		f.Data.DataTable.RemoveColumn("PACK","USER_DFND_NO")
+		f.Data.DataTable.AddColumn("PACK","ORDER_NO","STRING",V.Local.sOrder.right6)
+		f.Data.DataTable.AddColumn("PACK","DUNS","STRING",V.Local.sDUNS.Trim)
+		F.Data.DataTable.AddExpressionColumn("PACK","USER_DFND_NO","STRING","[DUNS] + '1' + [ORDER_NO] + TRIMCARTON")
+		F.Data.DataTable.Merge("PACK","NEWPACK",False,2)
+		F.Data.DataTable.RemoveColumn("NEWPACK","TRIMCARTON")
+		f.Data.DataTable.acceptchanges("NEWPACK")
+		f.Data.DataTable.SaveToDB("NEWPACK","Conx","BOL_CARTON_NUM","PCK_NO*!*CRTN_NO",256,"PCK_NO@!@PCK_NO*!*CRTN_NO@!@CRTN_NO*!*USER_DFND_NO@!@USER_DFND_NO")
+		
+		'create data table
+		'Print carton labels
+		F.Intrinsic.String.Build("SELECT PDT.ORDER_NO, LEFT(PDT.ORDER_LINE,3) as ORDER_LINE, PDT.PART, PDT.LOCN, PDT.PART_DESC, I2.TEXT_INFO1, I2.TEXT_INFO2, I2.DESCRIPTION_2, I2.DESCRIPTION_3, PDT.CRTN_NO, SH.CUSTOMER_PO, SUM(PDT.QTY) AS QTY, ST.NAME_CUSTOMER_SHIP, PDT.PCK_NO, PDT.CUST_PART, PDT.LBS_PER_PC, PDT.PLLT_NO, PDT.WAYBILL_NO, (select COUNT(DISTINCT CRTN_NO) AS TOTAL_CARTONS FROM V_BOL_PACK_DTL where PCK_NO = PDT.PCK_NO AND PLLT_NO=PDT.PLLT_NO), SH.CUSTOMER, CM.NAME_CUSTOMER, CM.ADDRESS1, CM.ADDRESS2, CM.CITY, CM.STATE, CM.ZIP, CM.COUNTRY, SH.DATE_DUE, SH.DATE_SHIPPED, SH.FACILITY, CFI.EXTERNAL_ID, ST.ADDRESS_1_SHIP, ST.ADDRESS_2_SHIP, ST.ADDRESS_3_SHIP, ST.ADDRESS_4_SHIP, ST.ADDRESS_5_SHIP, ST.ATTENTION_SHIP, ST.CITY_SHIP, ST.STATE_SHIP, ST.CODE_ZIP_SHIP, PDT.LAST_CHG_BY,SL.LN_USER_1,SL.LN_USER_2,SL.LN_USER_3,SL.LN_USER_4,SL.LN_USER_5,SH.CODE_SORT,SL.INFO_1,SL.INFO_2, CN.USER_DFND_NO AS CARTON_UDN, PN.USR_DFND_NO AS PALLET_UDN, CN.CRTN_CD FROM V_BOL_PACK_DTL AS PDT LEFT JOIN V_SHIPMENT_HEADER AS SH ON PDT.ORDER_NO = SH.ORDER_NO AND PDT.ORDER_SEQ = SH.ORDER_SUFFIX LEFT JOIN V_SHIPMENT_SHIPTO AS ST ON SH.ORDER_NO = ST.ORDER_NO AND SH.ORDER_SUFFIX = ST.ORDER_SUFFIX AND SH.SHIP_ID = ST.SHIP_ID LEFT JOIN V_CUSTOMER_MASTER AS CM ON SH.CUSTOMER = CM.CUSTOMER LEFT JOIN V_INVENTORY_MST2 AS I2 ON PDT.PART = I2.PART AND PDT.LOCN = I2.LOCATION LEFT JOIN V_CUST_FORM_INFO CFI ON CFI.CUSTOMER = CM.CUSTOMER LEFT JOIN V_SHIPMENT_LINES AS SL ON PDT.ORDER_NO = SL.ORDER_NO AND PDT.ORDER_SEQ = SL.ORDER_SUFFIX AND PDT.ORDER_LINE=SL.ORDER_REC LEFT JOIN V_BOL_CARTON_NUM AS CN ON PDT.PCK_NO = CN.PCK_NO AND PDT.CRTN_NO = CN.CRTN_NO LEFT outer JOIN V_BOL_PALLET_NUM AS PN ON PDT.PCK_NO = PN.PCK_NO AND PDT.PLLT_NO = PN.PLLT_NO WHERE PDT.PCK_NO = '{0}' GROUP BY PDT.ORDER_NO,LEFT(PDT.ORDER_LINE,3),PDT.ORDER_LINE,PDT.PART,PDT.LOCN, PDT.PART_DESC, I2.TEXT_INFO1, I2.TEXT_INFO2, I2.DESCRIPTION_2, I2.DESCRIPTION_3, PDT.CRTN_NO, SH.CUSTOMER_PO,ST.NAME_CUSTOMER_SHIP, PDT.PCK_NO,PDT.CUST_PART,PDT.LBS_PER_PC,PDT.WAYBILL_NO, SH.CARTONS, SH.CUSTOMER, CM.NAME_CUSTOMER, CM.ADDRESS1, CM.ADDRESS2, CM.CITY, CM.STATE, CM.ZIP, CM.COUNTRY, SH.DATE_DUE, SH.DATE_SHIPPED, SH.FACILITY, CFI.EXTERNAL_ID, ST.ADDRESS_1_SHIP, ST.ADDRESS_2_SHIP, ST.ADDRESS_3_SHIP, ST.ADDRESS_4_SHIP, ST.ADDRESS_5_SHIP, ST.ATTENTION_SHIP, ST.CITY_SHIP, ST.STATE_SHIP, ST.CODE_ZIP_SHIP, PDT.LAST_CHG_BY,SL.LN_USER_1,SL.LN_USER_2,SL.LN_USER_3,SL.LN_USER_4,SL.LN_USER_5,SH.CODE_SORT,SL.INFO_1,SL.INFO_2, PDT.PLLT_NO, PDT.CRTN_NO, CN.USER_DFND_NO, PN.USR_DFND_NO, CN.CRTN_CD ORDER BY PDT.CRTN_NO",V.Local.sOrder,V.Local.sSql)
+		f.Data.DataTable.CreateFromSQL("LABEL","CONX",V.Local.sSql,True)
+		
+		'add total cartons and total pallets columns and format to numbers
+		Function.Data.DataTable.SetValueFormat("LABEL",-1,"CRTN_NO","CRTN_NO","######")
+		Function.Data.DataTable.SetValueFormat("LABEL",-1,"PLLT_NO","PLLT_NO","######")
+		
+		f.Data.DataTable.AddColumn("LABEL","TOTAL_PALLETS","STRING")
+		
+		Function.Data.DataTable.Compute("LABEL","MAX(PLLT_NO)","",V.Local.sRet)
+		f.Data.DataTable.SetValue("LABEL",-1,"TOTAL_PALLETS",V.Local.sRet)
+		
+		'stop logging
+		f.Global.BI.StopLogging(v.Global.iBILogID)
+		
+		'print
+		f.Global.BI.PrintCodesoftLabelFromDataTable(v.Global.iBIRunID,v.Global.iBILogID,"LABEL","",True)
+	F.Intrinsic.Control.EndIf
+	
+	
+	
+	
+	
+	' ---->  Create Pallet Labels if customer wants pallet labels...
+	F.Intrinsic.Control.If(V.Screen.fMain!chkPallet.Checked,=,1)
+		'Get run ID
+		F.Global.BI.GetRunID(V.Global.iBIRunID)
+		
+		f.Intrinsic.Control.If(v.Local.sMasterRptID,=,"")
+			V.Local.sMasterRptID.Set(V.Global.iBIRptID)
+		f.Intrinsic.Control.EndIf
+		
+		f.Intrinsic.Control.If(v.Local.sMasterRptID,<>,"")
+		
+			'Starting BI Logging
+			F.Global.BI.StartLogging(V.Global.iBIRunID,V.Local.sMasterRptID,-1,"",V.Global.iBILogID)
+			
+			'tables currently in this query (for adding fields later)
+			'V_BOL_PACK_DTL PDT
+			'V_SHIPMENT_HEADER SH 
+			'V_SHIPMENT_SHIPTO ST 
+			'V_CUSTOMER_MASTER CM 
+			'V_INVENTORY_MST2 I2
+			'V_CUST_FORM_INFO CFI
+			'V_SHIPMENT_LINES
+			'V_BOL_PALLET_NUM PN
+			
+			'updating pallet serial number
+			
+			f.Intrinsic.String.Build("select B.*, RIGHT(B.PLLT_NO,2) AS TRIMPALLET from bol_pallet_num B where pck_no = '{0}'",v.Local.sorder,v.Local.sSql2)
+			f.Data.DataTable.CreateFromSQL("PACKPALLET","Conx",V.Local.sSql2,True)
+			f.Data.DataTable.Clone("PACKPALLET","NEWPACKPALLET",True)
+			f.Data.DataTable.RemoveColumn("PACKPALLET","USR_DFND_NO")
+			F.Data.DataTable.RemoveColumn("NEWPACKPALLET","TRIMPALLET")
+			f.Data.DataTable.AddColumn("PACKPALLET","ORDER_NO","STRING",V.Local.sOrder.right6)
+			f.Data.DataTable.AddColumn("PACKPALLET","DUNS","STRING",V.Local.sDUNS.Trim)
+			F.Data.DataTable.AddExpressionColumn("PACKPALLET","USR_DFND_NO","STRING","[DUNS] + '0' + [ORDER_NO] + TRIMPALLET")
+			F.Data.DataTable.Merge("PACKPALLET","NEWPACKPALLET",False,2)
+			f.Data.DataTable.acceptchanges("NEWPACKPALLET")
+			f.Data.DataTable.SaveToDB("NEWPACKPALLET","Conx","BOL_PALLET_NUM","PCK_NO*!*PLLT_NO",256,"PCK_NO@!@PCK_NO*!*PLLT_NO@!@PLLT_NO*!*USR_DFND_NO@!@USR_DFND_NO")
+			
+			'create data table
+			
+			'print pallet labels 
+			F.Intrinsic.String.Build("SELECT SUM(PDT.QTY) AS QTY,ST.NAME_CUSTOMER_SHIP, PDT.PCK_NO,PDT.PLLT_NO, PDT.WAYBILL_NO,PDT.PART, PDT.LOCN, PDT.PART_DESC, I2.TEXT_INFO1, I2.TEXT_INFO2, I2.DESCRIPTION_2, I2.DESCRIPTION_3, MAX(SH.CUSTOMER_PO) AS CUSTOMER_PO,(SELECT COUNT(DISTINCT CRTN_NO) AS TOTAL_CARTONS FROM V_BOL_PACK_DTL WHERE PCK_NO = PDT.PCK_NO AND PLLT_NO = PDT.PLLT_NO), SH.CUSTOMER, CM.NAME_CUSTOMER, CM.ADDRESS1, CM.ADDRESS2, CM.CITY, CM.STATE, CM.ZIP, CM.COUNTRY, SH.DATE_SHIPPED, SH.FACILITY, CFI.EXTERNAL_ID, ST.ADDRESS_1_SHIP, ST.ADDRESS_2_SHIP, ST.ADDRESS_3_SHIP, ST.ADDRESS_4_SHIP, ST.ADDRESS_5_SHIP, ST.ATTENTION_SHIP, ST.CITY_SHIP, ST.STATE_SHIP, MAX(SL.INFO_1) AS INFO_1,MAX(SL.INFO_2) AS INFO_2,MAX(SH.CODE_SORT) AS CODE_SORT,ST.CODE_ZIP_SHIP, PDT.LAST_CHG_BY,PDT.PLLT_NO, PN.USR_DFND_NO AS PALLET_UDN, PN.PLLT_CD, (SELECT COUNT(DISTINCT PART) AS PALLET_PARTS FROM V_BOL_PACK_DTL WHERE PCK_NO = PDT.PCK_NO AND PLLT_NO = PDT.PLLT_NO), MAX(SL.LN_USER_3) AS LN_USER_3 FROM V_BOL_PACK_DTL AS PDT LEFT JOIN V_SHIPMENT_HEADER AS SH ON PDT.ORDER_NO = SH.ORDER_NO AND PDT.ORDER_SEQ = SH.ORDER_SUFFIX LEFT JOIN V_SHIPMENT_SHIPTO AS ST ON SH.ORDER_NO = ST.ORDER_NO AND SH.ORDER_SUFFIX = ST.ORDER_SUFFIX AND SH.SHIP_ID = ST.SHIP_ID LEFT JOIN V_CUSTOMER_MASTER AS CM ON SH.CUSTOMER = CM.CUSTOMER LEFT JOIN V_INVENTORY_MST2 AS I2 ON PDT.PART = I2.PART AND PDT.LOCN = I2.LOCATION LEFT JOIN V_CUST_FORM_INFO CFI ON CFI.CUSTOMER = CM.CUSTOMER LEFT JOIN V_SHIPMENT_LINES AS SL ON PDT.ORDER_NO = SL.ORDER_NO AND PDT.ORDER_SEQ = SL.ORDER_SUFFIX AND PDT.ORDER_LINE=SL.ORDER_REC LEFT JOIN V_BOL_PALLET_NUM AS PN ON PDT.PCK_NO = PN.PCK_NO AND PDT.PLLT_NO = PN.PLLT_NO WHERE PDT.PCK_NO = '{0}' GROUP BY PDT.PART, PDT.LOCN, PDT.PART_DESC, I2.TEXT_INFO1, I2.TEXT_INFO2, I2.DESCRIPTION_2, I2.DESCRIPTION_3, ST.NAME_CUSTOMER_SHIP,PDT.PCK_NO,PDT.WAYBILL_NO, SH.CARTONS, SH.CUSTOMER, CM.NAME_CUSTOMER, CM.ADDRESS1, CM.ADDRESS2, CM.CITY, CM.STATE, CM.ZIP, CM.COUNTRY, SH.DATE_SHIPPED, SH.FACILITY, CFI.EXTERNAL_ID, PDT.LAST_CHG_BY,ST.ADDRESS_1_SHIP, ST.ADDRESS_2_SHIP, ST.ADDRESS_3_SHIP, ST.ADDRESS_4_SHIP, ST.ADDRESS_5_SHIP, ST.ATTENTION_SHIP, ST.CITY_SHIP, ST.STATE_SHIP, ST.CODE_ZIP_SHIP, PDT.PLLT_NO, PN.USR_DFND_NO, PN.PLLT_CD ORDER BY PDT.PLLT_NO",V.Local.sOrder,V.Local.sSql)
+			f.Data.DataTable.CreateFromSQL("LABEL2","CONX",V.Local.sSql,True)
+			
+			'add total cartons and total pallets columns and format to numbers
+			Function.Data.DataTable.SetValueFormat("LABEL2",-1,"PLLT_NO","PLLT_NO","######")
+			f.Data.DataTable.AddColumn("LABEL2","TOTAL_PALLETS","STRING")
+			Function.Data.DataTable.Compute("LABEL2","MAX(PLLT_NO)","",V.Local.sRet)
+			f.Data.DataTable.SetValue("LABEL2",-1,"TOTAL_PALLETS",V.Local.sRet)
+			
+			'stop logging
+			f.Global.BI.StopLogging(v.Global.iBILogID)
+			
+			'print
+			f.Global.BI.PrintCodesoftLabelFromDataTable(v.Global.iBIRunID,v.Global.iBILogID,"LABEL2","",True)
+		
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+	
+	F.Intrinsic.Control.CallSub(fMain_UnLoad)
+	
+	F.Intrinsic.Control.ExitSub
+	
+	f.ODBC.Connection!conx.Close
+
+F.Intrinsic.Control.Label("Main_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_4799_OE_ShipLab_53_ALCO.g2u",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+Function.Intrinsic.Control.EndIf
+F.ODBC.Connection!Conx.Close
+Program.Sub.Print.End
+
+Program.Sub.fMain_UnLoad.Start
+	F.Intrinsic.Control.End
+Program.Sub.fMain_UnLoad.End
+
+Program.Sub.Comments.Start
+${$0$}$GCG_4799_OE_ShipLab_53_ALCO$}$JWITHROW$}$09/29/2020 00:00:01 AM$}$False
+${$5$}$2.0.0.0$}$2
+${$6$}$jwithrow$}$20200929162908127$}$D95tSYIikIvF+oq+s87EtBQePACEH+EykwAUdA6q+nMpmdTTuFO1gZWO5DfzHRB7+EocQ+KaIjG/9UaBsrnHmw==
+Program.Sub.Comments.End
+
